@@ -447,6 +447,9 @@ void for_each_codepoint(Context& context, NormalParams)
 
 void command(const Context& context, EnvVarMap env_vars)
 {
+    if (context.is_line_editing()) {
+        context.enter_or_keep_line_editing();
+    }
     if (not CommandManager::has_instance())
         throw runtime_error{"commands are not supported"};
 
@@ -458,9 +461,15 @@ void command(const Context& context, EnvVarMap env_vars)
         ':',
         [](const Context& context, CompletionFlags flags,
            StringView cmd_line, ByteCount pos) {
+                if (context.is_line_editing()) {
+                    context.enter_or_keep_line_editing();
+                }
                return CommandManager::instance().complete(context, flags, cmd_line, pos);
         },
         [env_vars = std::move(env_vars)](StringView cmdline, PromptEvent event, Context& context) {
+            if (context.is_line_editing()) {
+                context.enter_or_keep_line_editing();
+            }
             if (context.has_client())
             {
                 context.client().info_hide();
@@ -2029,7 +2038,11 @@ public:
     void operator() (Context& context, NormalParams params)
     {
         ScopedEdition edition(context);
-        do { m_func(context, {0, params.reg}); } while(--params.count > 0);
+        do {
+            m_func(context, {0, params.reg});
+            if (params.count > 1)
+                context.post_movement_logic();
+        } while (--params.count > 0);
     }
 private:
     T m_func;
@@ -2039,7 +2052,11 @@ template<void (*func)(Context&, NormalParams)>
 void repeated(Context& context, NormalParams params)
 {
     ScopedEdition edition(context);
-    do { func(context, {0, params.reg}); } while(--params.count > 0);
+    do {
+        func(context, {0, params.reg});
+        if (params.count > 1)
+            context.post_movement_logic();
+    } while (--params.count > 0);
 }
 
 template<typename Type, Direction direction, SelectMode mode = SelectMode::Replace>
@@ -2054,6 +2071,98 @@ void move_cursor(Context& context, NormalParams params)
         auto cursor = context.buffer().offset_coord(sel.cursor(), offset, tabstop, true);
         sel.anchor() = mode == SelectMode::Extend ? sel.anchor() : cursor;
         sel.cursor() = cursor;
+    }
+    selections.sort_and_merge_overlapping();
+}
+
+template<typename Type, Direction direction, SelectMode mode = SelectMode::Replace>
+void move_cursor_ext(Context& context, NormalParams params)
+{
+    if (!context.is_line_editing() || mode != SelectMode::Extend) {
+        return move_cursor<Type, direction, mode>(context, params);
+    }
+
+    context.enter_or_keep_line_editing();
+
+    kak_assert(mode == SelectMode::Replace or mode == SelectMode::Extend);
+    auto& selections = context.selections();
+    auto& buffer = context.buffer();
+    auto count = std::max(params.count, 1);
+    for (auto& sel : selections)
+    {
+        BufferCoord anchor = sel.anchor();
+        BufferCoord cursor  = sel.cursor();
+        BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
+        BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
+
+        if (direction == Backward) {
+            if (to_line_start.line > 0) {
+                auto prev_line = LineCount(0);
+                if (to_line_start.line > count) {
+                    prev_line = to_line_start.line - count;
+                }
+                to_line_start = BufferCoord{ prev_line, 0 };
+            }
+        } else if (direction == Forward) {
+            auto last_line = buffer.line_count() - 1;
+            auto next_line = last_line;
+
+            if (count < last_line and to_line_end.line < last_line - count) {
+                next_line = to_line_end.line + count;
+            }
+            to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+        }
+
+        if (anchor <= cursor) {
+            sel.anchor() = to_line_start;
+            sel.cursor() = to_line_end;
+        } else {
+            sel.anchor() = to_line_end;
+            sel.cursor() = to_line_start;
+        }
+    }
+    selections.sort_and_merge_overlapping();
+}
+
+
+template<typename Type, Direction direction, SelectMode mode = SelectMode::Replace>
+void move_cursor_shrink(Context& context, NormalParams params)
+{
+    if (!context.is_line_editing() || mode != SelectMode::Extend) {
+        return move_cursor<Type, direction, mode>(context, params);
+    }
+
+    context.enter_or_keep_line_editing();
+
+    kak_assert(mode == SelectMode::Replace or mode == SelectMode::Extend);
+    auto& selections = context.selections();
+    auto& buffer = context.buffer();
+    auto count = std::max(params.count, 1);
+    for (auto& sel : selections)
+    {
+        BufferCoord anchor = sel.anchor();
+        BufferCoord cursor  = sel.cursor();
+        BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
+        BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
+
+        auto line_distance = to_line_end.line - to_line_start.line;
+        auto clamped_count = std::min(count, (int)(line_distance));
+
+        if (direction == Backward) {
+            auto prev_line = to_line_end.line - clamped_count;
+            to_line_end = BufferCoord{ prev_line, buffer[prev_line].length()-1 };
+        } else if (direction == Forward) {
+            auto next_line = to_line_start.line + clamped_count;
+            to_line_start = BufferCoord{ next_line, 0 };
+        }
+
+        if (anchor <= cursor) {
+            sel.anchor() = to_line_start;
+            sel.cursor() = to_line_end;
+        } else {
+            sel.anchor() = to_line_end;
+            sel.cursor() = to_line_start;
+        }
     }
     selections.sort_and_merge_overlapping();
 }
@@ -2096,6 +2205,10 @@ void clear_selections(Context& context, NormalParams)
 
 void flip_selections(Context& context, NormalParams)
 {
+    if (context.is_line_editing()) {
+        context.enter_or_keep_line_editing();
+    }
+
     for (auto& sel : context.selections())
     {
         const BufferCoord tmp = sel.anchor();
@@ -2107,6 +2220,10 @@ void flip_selections(Context& context, NormalParams)
 
 void ensure_forward(Context& context, NormalParams)
 {
+    if (context.is_line_editing()) {
+        context.enter_or_keep_line_editing();
+    }
+
     for (auto& sel : context.selections())
     {
         const BufferCoord min = sel.min(), max = sel.max();
@@ -2168,6 +2285,11 @@ static constexpr HashMap<Key, NormalCmd, MemoryDomain::Undefined, KeymapBackend>
     { {'j'}, {"move down", move_cursor<LineCount, Forward>} },
     { {'k'}, {"move up",  move_cursor<LineCount, Backward>} },
     { {'l'}, {"move right", move_cursor<CharCount, Forward>} },
+
+    { {Key::Left}, { "move left", move_cursor<CharCount, Backward>} },
+    { {Key::Down}, { "move down", move_cursor<LineCount, Forward>} },
+    { {Key::Up}, {   "move up", move_cursor<LineCount, Backward>} },
+    { {Key::Right}, {"move right", move_cursor<CharCount, Forward>} },
 
     { {'H'}, {"extend left", move_cursor<CharCount, Backward, SelectMode::Extend>} },
     { {'J'}, {"extend down", move_cursor<LineCount, Forward, SelectMode::Extend>} },
@@ -2255,9 +2377,9 @@ static constexpr HashMap<Key, NormalCmd, MemoryDomain::Undefined, KeymapBackend>
     { {alt('H')}, {"extend to line begin", repeated<select<SelectMode::Extend, select_to_line_begin<false>>>} },
 
     { {'x'}, {"select line", repeated<select<SelectMode::Replace, select_line>>} },
-    { {'X'}, {"extend line", repeated<select<SelectMode::Extend, select_line>>} },
-    { {alt('x')}, {"extend selections to whole lines", select<SelectMode::Replace, select_lines>} },
-    { {alt('X')}, {"crop selections to whole lines", select<SelectMode::Replace, trim_partial_lines>} },
+    { {'X'}, {"extend line", repeated<select<SelectMode::Extend, select_line_extend>>} },
+    { {alt('x')}, {"extend selections to whole lines", repeated<select<SelectMode::Replace, extend_partial_lines>>} },
+    { {alt('X')}, {"crop selections to whole lines", repeated<select<SelectMode::Replace, trim_partial_lines>>} },
 
     { {'m'}, {"select to matching character", select<SelectMode::Replace, select_matching<true>>} },
     { {alt('m')}, {"backward select to matching character", select<SelectMode::Replace, select_matching<false>>} },

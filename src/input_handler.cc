@@ -310,6 +310,7 @@ public:
                 m_params = { 0, 0 };
 
                 command->func(context(), params);
+                context().post_movement_logic();
             }
         }
 

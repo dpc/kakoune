@@ -32,6 +32,9 @@ select_to_previous_word(const Context& context, const Selection& selection);
 Optional<Selection>
 select_line(const Context& context, const Selection& selection);
 
+Optional<Selection>
+select_line_extend(const Context& context, const Selection& selection);
+
 template<bool forward>
 Optional<Selection>
 select_matching(const Context& context, const Selection& selection);
@@ -103,6 +106,9 @@ select_argument(const Context& context, const Selection& selection,
 
 Optional<Selection>
 select_lines(const Context& context, const Selection& selection);
+
+Optional<Selection>
+extend_partial_lines(const Context& context, const Selection& selection);
 
 Optional<Selection>
 trim_partial_lines(const Context& context, const Selection& selection);

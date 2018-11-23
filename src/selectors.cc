@@ -177,13 +177,48 @@ Optional<Selection>
 select_line(const Context& context, const Selection& selection)
 {
     auto& buffer = context.buffer();
-    auto line = selection.cursor().line;
-    // Next line if line fully selected
-    if (selection.anchor() <= BufferCoord{line, 0_byte} and
-        selection.cursor() == BufferCoord{line, buffer[line].length() - 1} and
-        line != buffer.line_count() - 1)
+    bool forward = selection.anchor() <= selection.cursor();
+    auto line = forward ? std::max(selection.cursor().line, selection.anchor().line)
+        : std::min(selection.cursor().line, selection.anchor().line);
+
+    if (context.is_line_editing()) {
         ++line;
-    return Selection{{line, 0_byte}, {line, buffer[line].length() - 1, max_column}};
+    }
+
+    context.enter_or_keep_line_editing();
+
+    if (line >= buffer.line_count()) {
+        return Optional<Selection>();
+    }
+    if (forward) {
+        return Selection{{line, 0_byte}, {line, buffer[line].length() - 1, max_column}};
+    } else {
+       return Selection({{line, buffer[line].length() - 1}, {line, 0_byte, max_column}});
+    }
+}
+
+Optional<Selection>
+select_line_extend(const Context& context, const Selection& selection)
+{
+    auto& buffer = context.buffer();
+    bool forward = selection.anchor() <= selection.cursor();
+    auto line = std::max(selection.cursor().line, selection.anchor().line);
+    auto starting_line = std::min(selection.cursor().line, selection.anchor().line);
+
+    if (context.is_line_editing()) {
+        ++line;
+    }
+
+    context.enter_or_keep_line_editing();
+
+    if (line >= buffer.line_count()) {
+        return Optional<Selection>();
+    }
+    if (forward) {
+        return Selection({{starting_line, 0_byte}, {line, buffer[line].length() - 1, max_column}});
+    } else {
+       return Selection({{line, buffer[line].length() - 1}, {starting_line, 0_byte, max_column}});
+    }
 }
 
 template<bool only_move>
@@ -814,6 +849,8 @@ select_argument(const Context& context, const Selection& selection,
 Optional<Selection>
 select_lines(const Context& context, const Selection& selection)
 {
+    context.enter_or_keep_line_editing();
+
     auto& buffer = context.buffer();
     BufferCoord anchor = selection.anchor();
     BufferCoord cursor  = selection.cursor();
@@ -827,6 +864,39 @@ select_lines(const Context& context, const Selection& selection)
 }
 
 Optional<Selection>
+extend_partial_lines(const Context& context, const Selection& selection)
+{
+
+    if (!context.is_line_editing()) {
+        return select_lines(context, selection);
+    }
+
+	context.enter_or_keep_line_editing();
+
+    auto& buffer = context.buffer();
+    BufferCoord anchor = selection.anchor();
+    BufferCoord cursor  = selection.cursor();
+    BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
+    BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
+
+
+	if (to_line_start.line > 0) {
+        auto prev_line = to_line_start.line-1;
+        to_line_start = BufferCoord{ prev_line, 0 };
+	}
+
+	if (to_line_end.line < buffer.line_count() - 1) {
+        auto next_line = to_line_end.line+1;
+        to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+	}
+
+    if (to_line_start > to_line_end)
+        return {};
+
+    return Selection{anchor, cursor};
+}
+
+Optional<Selection>
 trim_partial_lines(const Context& context, const Selection& selection)
 {
     auto& buffer = context.buffer();
@@ -835,16 +905,26 @@ trim_partial_lines(const Context& context, const Selection& selection)
     BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
     BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
 
-    if (to_line_start.column != 0)
-        to_line_start = to_line_start.line+1;
-    if (to_line_end.column != buffer[to_line_end.line].length()-1)
-    {
-        if (to_line_end.line == 0)
-            return {};
+    context.enter_or_keep_line_editing();
 
-        auto prev_line = to_line_end.line-1;
-        to_line_end = BufferCoord{ prev_line, buffer[prev_line].length()-1 };
-    }
+	if (context.is_line_editing()) {
+        auto prev_line = to_line_start.line+1;
+        to_line_start = BufferCoord{ prev_line, 0 };
+
+        auto next_line = to_line_end.line-1;
+        to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+	} else {
+        if (to_line_start.column != 0)
+            to_line_start = to_line_start.line+1;
+        if (to_line_end.column != buffer[to_line_end.line].length()-1)
+        {
+            if (to_line_end.line == 0)
+                return {};
+
+            auto prev_line = to_line_end.line-1;
+            to_line_end = BufferCoord{ prev_line, buffer[prev_line].length()-1 };
+        }
+	}
 
     if (to_line_start > to_line_end)
         return {};
