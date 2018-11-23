@@ -2047,6 +2047,48 @@ void move_cursor(Context& context, NormalParams params)
     selections.sort_and_merge_overlapping();
 }
 
+template<typename Type, Direction direction, SelectMode mode = SelectMode::Replace>
+void move_cursor_ext(Context& context, NormalParams params)
+{
+    if (!context.is_line_editing() || mode != SelectMode::Extend) {
+        return move_cursor<Type, direction, mode>(context, params);
+    }
+
+    context.enter_or_keep_line_editing();
+
+    kak_assert(mode == SelectMode::Replace or mode == SelectMode::Extend);
+    auto& selections = context.selections();
+    auto& buffer = context.buffer();
+    for (auto& sel : selections)
+    {
+        BufferCoord anchor = sel.anchor();
+        BufferCoord cursor  = sel.cursor();
+        BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
+        BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
+
+        if (direction == Backward) {
+            if (to_line_start.line > 0) {
+                auto prev_line = to_line_start.line-1;
+                to_line_start = BufferCoord{ prev_line, 0 };
+            }
+        } else if (direction == Forward) {
+            if (to_line_end.line < buffer.line_count() - 1) {
+                auto next_line = to_line_end.line+1;
+                to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+            }
+        }
+
+        if (anchor <= cursor) {
+            sel.anchor() = to_line_start;
+            sel.cursor() = to_line_end;
+        } else {
+            sel.anchor() = to_line_end;
+            sel.cursor() = to_line_start;
+        }
+    }
+    selections.sort_and_merge_overlapping();
+}
+
 void select_whole_buffer(Context& context, NormalParams)
 {
     select_buffer(context.selections());
@@ -2142,8 +2184,8 @@ static const HashMap<Key, NormalCmd, MemoryDomain::Undefined, KeymapBackend> key
     { {Key::Right}, {"move right", move_cursor<CharCount, Forward>} },
 
     { {'H'}, {"extend left", move_cursor<CharCount, Backward, SelectMode::Extend>} },
-    { {'J'}, {"extend down", move_cursor<LineCount, Forward, SelectMode::Extend>} },
-    { {'K'}, {"extend up", move_cursor<LineCount, Backward, SelectMode::Extend>} },
+    { {'J'}, {"extend down", move_cursor_ext<LineCount, Forward, SelectMode::Extend>} },
+    { {'K'}, {"extend up", move_cursor_ext<LineCount, Backward, SelectMode::Extend>} },
     { {'L'}, {"extend right", move_cursor<CharCount, Forward, SelectMode::Extend>} },
 
     { shift(Key::Left), {"extend left", move_cursor<CharCount, Backward, SelectMode::Extend>} },
