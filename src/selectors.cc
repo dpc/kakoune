@@ -861,6 +861,39 @@ select_lines(const Context& context, const Selection& selection)
 }
 
 Optional<Selection>
+extend_partial_lines(const Context& context, const Selection& selection)
+{
+
+    if (!context.is_line_editing()) {
+        return select_lines(context, selection);
+    }
+
+	context.enter_or_keep_line_editing();
+
+    auto& buffer = context.buffer();
+    BufferCoord anchor = selection.anchor();
+    BufferCoord cursor  = selection.cursor();
+    BufferCoord& to_line_start = anchor <= cursor ? anchor : cursor;
+    BufferCoord& to_line_end = anchor <= cursor ? cursor : anchor;
+
+
+	if (to_line_start.line > 0) {
+        auto prev_line = to_line_start.line-1;
+        to_line_start = BufferCoord{ prev_line, 0 };
+	}
+
+	if (to_line_end.line < buffer.line_count() - 1) {
+        auto next_line = to_line_end.line+1;
+        to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+	}
+
+    if (to_line_start > to_line_end)
+        return {};
+
+    return target_eol({anchor, cursor});
+}
+
+Optional<Selection>
 trim_partial_lines(const Context& context, const Selection& selection)
 {
     auto& buffer = context.buffer();
@@ -871,16 +904,24 @@ trim_partial_lines(const Context& context, const Selection& selection)
 
     context.enter_or_keep_line_editing();
 
-    if (to_line_start.column != 0)
-        to_line_start = to_line_start.line+1;
-    if (to_line_end.column != buffer[to_line_end.line].length()-1)
-    {
-        if (to_line_end.line == 0)
-            return {};
+	if (context.is_line_editing()) {
+        auto prev_line = to_line_start.line+1;
+        to_line_start = BufferCoord{ prev_line, 0 };
 
-        auto prev_line = to_line_end.line-1;
-        to_line_end = BufferCoord{ prev_line, buffer[prev_line].length()-1 };
-    }
+        auto next_line = to_line_end.line-1;
+        to_line_end = BufferCoord{ next_line, buffer[next_line].length()-1 };
+	} else {
+        if (to_line_start.column != 0)
+            to_line_start = to_line_start.line+1;
+        if (to_line_end.column != buffer[to_line_end.line].length()-1)
+        {
+            if (to_line_end.line == 0)
+                return {};
+
+            auto prev_line = to_line_end.line-1;
+            to_line_end = BufferCoord{ prev_line, buffer[prev_line].length()-1 };
+        }
+	}
 
     if (to_line_start > to_line_end)
         return {};

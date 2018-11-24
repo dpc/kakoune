@@ -98,6 +98,9 @@ Optional<Selection>
 select_lines(const Context& context, const Selection& selection);
 
 Optional<Selection>
+extend_partial_lines(const Context& context, const Selection& selection);
+
+Optional<Selection>
 trim_partial_lines(const Context& context, const Selection& selection);
 
 void select_buffer(SelectionList& selections);
