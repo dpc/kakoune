@@ -1222,6 +1222,19 @@ void highlight_selections(HighlightContext context, DisplayBuffer& display_buffe
         const bool eol = buffer[coord.line].length() - 1 == coord.column;
         highlight_range(display_buffer, coord, buffer.char_next(coord), false,
                         apply_face(sel_faces[2 + (eol ? 2 : 0) + (primary ? 0 : 1)]));
+        if (context.context.is_line_editing())
+        {
+            auto first_line = std::min(sel.anchor().line, sel.cursor().line);
+            auto last_line = std::max(sel.anchor().line, sel.cursor().line);
+            for (auto line = first_line; line <= last_line; ++line) {
+                auto it = find_if(display_buffer.lines(), [&](auto& l) { return l.range().begin.line == line; });
+                if (it != display_buffer.lines().end())
+                {
+                    it->push_back(DisplayAtom{String{' ', context.context.window().dimensions().column - it->length() },
+                                              sel_faces[primary ? 0 : 1]});
+                }
+            }
+        }
     }
 }
 

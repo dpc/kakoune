@@ -94,7 +94,8 @@ Window::Setup Window::build_setup(const Context& context) const
              context.buffer().timestamp(),
              compute_faces_hash(context.faces()),
              context.selections().main_index(),
-             std::move(selections) };
+             std::move(selections),
+             context.is_line_editing()};
 }
 
 bool Window::needs_redraw(const Context& context) const
@@ -106,7 +107,8 @@ bool Window::needs_redraw(const Context& context) const
         context.buffer().timestamp() != m_last_setup.timestamp or
         selections.main_index() != m_last_setup.main_selection or
         selections.size() != m_last_setup.selections.size() or
-        compute_faces_hash(context.faces()) != m_last_setup.faces_hash)
+        compute_faces_hash(context.faces()) != m_last_setup.faces_hash or
+        context.is_line_editing() != m_last_setup.is_line_editing)
         return true;
 
     for (int i = 0; i < selections.size(); ++i)
