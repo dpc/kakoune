@@ -2236,7 +2236,7 @@ static const HashMap<Key, NormalCmd, MemoryDomain::Undefined, KeymapBackend> key
     { shift(Key::Home), {"extend to line begin", repeated<select<SelectMode::Extend, select_to_line_begin<false>>>} },
 
     { {'x'}, {"select line", repeated<select<SelectMode::Replace, select_line>>} },
-    { {'X'}, {"extend line", repeated<select<SelectMode::Extend, select_line>>} },
+    { {'X'}, {"extend line", repeated<select<SelectMode::Extend, select_line_extend>>} },
     { {alt('x')}, {"extend selections to whole lines", select<SelectMode::Replace, select_lines>} },
     { {alt('X')}, {"crop selections to whole lines", select<SelectMode::Replace, trim_partial_lines>} },
 

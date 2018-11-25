@@ -174,7 +174,9 @@ Optional<Selection>
 select_line(const Context& context, const Selection& selection)
 {
     auto& buffer = context.buffer();
-    auto line = selection.cursor().line;
+    bool forward = selection.anchor() <= selection.cursor();
+    auto line = forward ? std::max(selection.cursor().line, selection.anchor().line)
+        : std::min(selection.cursor().line, selection.anchor().line);
 
     if (context.is_line_editing()) {
         ++line;
@@ -185,7 +187,35 @@ select_line(const Context& context, const Selection& selection)
     if (line >= buffer.line_count()) {
         return Optional<Selection>();
     }
-    return target_eol({{line, 0_byte}, {line, buffer[line].length() - 1}});
+    if (forward) {
+        return target_eol({{line, 0_byte}, {line, buffer[line].length() - 1}});
+    } else {
+       return target_eol({{line, buffer[line].length() - 1}, {line, 0_byte}});
+    }
+}
+
+Optional<Selection>
+select_line_extend(const Context& context, const Selection& selection)
+{
+    auto& buffer = context.buffer();
+    bool forward = selection.anchor() <= selection.cursor();
+    auto line = std::max(selection.cursor().line, selection.anchor().line);
+    auto starting_line = std::min(selection.cursor().line, selection.anchor().line);
+
+    if (context.is_line_editing()) {
+        ++line;
+    }
+
+    context.enter_or_keep_line_editing();
+
+    if (line >= buffer.line_count()) {
+        return Optional<Selection>();
+    }
+    if (forward) {
+        return target_eol({{starting_line, 0_byte}, {line, buffer[line].length() - 1}});
+    } else {
+       return target_eol({{line, buffer[line].length() - 1}, {starting_line, 0_byte}});
+    }
 }
 
 template<bool only_move>
